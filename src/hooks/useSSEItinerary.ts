@@ -22,11 +22,14 @@ const INITIAL: SSEState = {
 export function useSSEItinerary() {
   const [state, setState] = useState<SSEState>(INITIAL);
   const abort = useRef<AbortController | null>(null);
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const generate = useCallback(async (request: TripRequest) => {
     abort.current?.abort();
+    if (timeout.current) clearTimeout(timeout.current);
     const ctrl = new AbortController();
     abort.current = ctrl;
+    timeout.current = setTimeout(() => ctrl.abort(), 75_000);
     setState({ ...INITIAL, status: 'connecting' });
 
     try {
@@ -52,6 +55,7 @@ export function useSSEItinerary() {
 
       setState((s) => ({ ...s, status: 'parsing' }));
       const itinerary = normalizeLegacyItinerary(await res.json(), request);
+      if (timeout.current) clearTimeout(timeout.current);
       setState({
         ...INITIAL,
         status: 'done',
@@ -64,7 +68,11 @@ export function useSSEItinerary() {
         },
       });
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
+      if (timeout.current) clearTimeout(timeout.current);
+      if ((err as Error).name === 'AbortError') {
+        setState((s) => ({ ...s, status: 'error', error: 'Planner backend timed out after 75 seconds. Please try again.' }));
+        return;
+      }
       setState((s) => ({ ...s, status: 'error', error: err instanceof Error ? err.message : String(err) }));
     }
   }, []);
@@ -72,12 +80,16 @@ export function useSSEItinerary() {
   const cancel = useCallback(() => {
     abort.current?.abort();
     abort.current = null;
+    if (timeout.current) clearTimeout(timeout.current);
+    timeout.current = null;
     setState(INITIAL);
   }, []);
 
   const reset = useCallback(() => {
     abort.current?.abort();
     abort.current = null;
+    if (timeout.current) clearTimeout(timeout.current);
+    timeout.current = null;
     setState(INITIAL);
   }, []);
 
