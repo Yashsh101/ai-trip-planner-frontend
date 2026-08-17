@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { API_BASE } from '../lib/api';
+import { API_BASE, GENERATE_PATH } from '../lib/api';
+import { budgetToLegacyAmount, dateRangeForRequest, normalizeLegacyItinerary } from '../lib/legacyAdapter';
 import type { GenerationStatus, Itinerary, SSEMeta, TripRequest } from '../types';
 
 interface SSEState {
@@ -26,86 +27,42 @@ export function useSSEItinerary() {
     abort.current?.abort();
     const ctrl = new AbortController();
     abort.current = ctrl;
-
     setState({ ...INITIAL, status: 'connecting' });
 
     try {
-      const res = await fetch(`${API_BASE}/api/itinerary/generate`, {
+      const { startDate, endDate } = dateRangeForRequest(request);
+      const res = await fetch(`${API_BASE}${GENERATE_PATH}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
+        body: JSON.stringify({
+          destination: request.destination,
+          startDate,
+          endDate,
+          budget: budgetToLegacyAmount(request.budget),
+          interests: request.interests,
+          travelStyle: request.travelStyle,
+        }),
         signal: ctrl.signal,
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => null) as { error?: { message?: string } } | null;
-        throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+        const body = await res.json().catch(() => null) as { error?: string; message?: string } | null;
+        throw new Error(body?.message ?? body?.error ?? `HTTP ${res.status}`);
       }
 
-      const contentType = res.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
-        const data = await res.json() as Itinerary;
-        setState({
-          ...INITIAL,
-          status: 'done',
-          itinerary: data,
-          meta: {
-            tripId: data.tripId,
-            ragChunksUsed: data.meta.ragChunksUsed,
-            weatherDataUsed: data.meta.weatherDataUsed,
-            promptVersion: data.meta.promptVersion,
-          },
-        });
-        return;
-      }
-
-      if (!res.body) {
-        throw new Error('Streaming response did not include a readable body.');
-      }
-
-      setState((s) => ({ ...s, status: 'enriching' }));
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let currentEvent = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmed = line.trimEnd();
-
-          if (trimmed.startsWith('event: ')) {
-            currentEvent = trimmed.slice(7).trim();
-            continue;
-          }
-
-          if (!trimmed.startsWith('data: ')) continue;
-
-          const raw = trimmed.slice(6);
-
-          if (currentEvent === 'meta') {
-            const meta = JSON.parse(raw) as SSEMeta;
-            setState((s) => ({ ...s, status: 'streaming', meta }));
-          } else if (currentEvent === 'token') {
-            const { text } = JSON.parse(raw) as { text: string };
-            setState((s) => ({ ...s, status: 'streaming', tokens: s.tokens + text }));
-          } else if (currentEvent === 'done') {
-            setState((s) => ({ ...s, status: 'parsing' }));
-            const { itinerary } = JSON.parse(raw) as { itinerary: Itinerary };
-            setState((s) => ({ ...s, status: 'done', itinerary }));
-          } else if (currentEvent === 'error') {
-            const { message } = JSON.parse(raw) as { message: string };
-            setState((s) => ({ ...s, status: 'error', error: message }));
-          }
-        }
-      }
+      setState((s) => ({ ...s, status: 'parsing' }));
+      const itinerary = normalizeLegacyItinerary(await res.json(), request);
+      setState({
+        ...INITIAL,
+        status: 'done',
+        itinerary,
+        meta: {
+          tripId: itinerary.tripId,
+          ragChunksUsed: itinerary.meta.ragChunksUsed,
+          weatherDataUsed: itinerary.meta.weatherDataUsed,
+          promptVersion: itinerary.meta.promptVersion,
+        },
+      });
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       setState((s) => ({ ...s, status: 'error', error: err instanceof Error ? err.message : String(err) }));

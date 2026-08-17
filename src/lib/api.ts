@@ -1,6 +1,8 @@
 import type { Itinerary } from '../types';
 
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+const DEFAULT_API_BASE = 'https://ai-planner-backend-i37s.onrender.com';
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined ?? DEFAULT_API_BASE).replace(/\/$/, '');
+export const GENERATE_PATH = import.meta.env.VITE_GENERATE_PATH ?? '/api/generate-itinerary';
 
 export async function fetchTrip(tripId: string): Promise<Itinerary> {
   const res = await fetch(`${API_BASE}/api/trips/${tripId}`);
