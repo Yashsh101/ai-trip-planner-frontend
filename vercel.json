@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/generate-itinerary",
+      "destination": "https://ai-planner-backend-i37s.onrender.com/api/generate-itinerary"
+    }
+  ]
+}

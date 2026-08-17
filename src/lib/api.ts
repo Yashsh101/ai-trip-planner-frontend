@@ -1,6 +1,6 @@
 import type { Itinerary } from '../types';
 
-const DEFAULT_API_BASE = 'https://ai-planner-backend-i37s.onrender.com';
+const DEFAULT_API_BASE = import.meta.env.DEV ? 'https://ai-planner-backend-i37s.onrender.com' : '';
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined ?? DEFAULT_API_BASE).replace(/\/$/, '');
 export const GENERATE_PATH = import.meta.env.VITE_GENERATE_PATH ?? '/api/generate-itinerary';
 
